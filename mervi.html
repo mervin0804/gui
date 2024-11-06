@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two Pass Assembler</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #121212; /* Darker background */
+            color: #e0e0e0; /* Light text color for better contrast */
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            width: 80%;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #1e1e1e; /* Slightly lighter background for the container */
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #ffffff; /* Header color */
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background-color: #007acc; /* Button background color */
+            color: #ffffff; /* Button text color */
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #005fa3; /* Darker shade on hover */
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #2b2b2b; /* Darker background for textareas */
+            color: #e0e0e0; /* Light text for textareas */
+            border: 1px solid #444; /* Border for textareas */
+            border-radius: 5px;
+            resize: vertical; /* Allow vertical resize */
+        }
+        #output, #symtabCode, #objectCode {
+            height: 150px;
+            background-color: #2b2b2b; /* Dark background for output areas */
+            color: #e0e0e0; /* Light text color */
+            border: 1px solid #444; /* Border for output areas */
+        }
+        /* Responsive design for smaller screens */
+        @media (max-width: 768px) {
+            .container {
+                width: 95%;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Two Pass Assembler</h2>
+
+    <!-- Input for Assembly Code -->
+    <label for="assemblyCode">Assembly Code:</label>
+    <textarea id="assemblyCode" placeholder="Enter your assembly code here..."></textarea>
+
+    <!-- Input for OPTAB -->
+    <label for="optabCode">OPTAB:</label>
+    <textarea id="optabCode" placeholder="Enter your opcode table here..."></textarea>
+
+    <!-- Buttons for Pass 1 and Pass 2 -->
+    <button id="passOneBtn" disabled>Run Pass 1</button>
+    <button id="passTwoBtn" disabled>Run Pass 2</button>
+
+    <!-- Output Textareas -->
+    <label for="intermediateCode">Intermediate Code:</label>
+    <textarea id="intermediateCode" readonly></textarea>
+
+    <label for="symtabCode">Symbol Table:</label>
+    <textarea id="symtabCode" readonly></textarea>
+
+    <label for="objectCode">Object Code:</label>
+    <textarea id="objectCode" readonly></textarea>
+</div>
+
+<script>
+    let inputFileContent = '';
+    let optabFileContent = '';
+    const opcode_list = [];
+    const opcode_hex = {};
+    const sym_list = [];
+    const sym_addresses = [];
+    let locctr = 0;
+
+    document.getElementById('assemblyCode').addEventListener('input', (event) => {
+        inputFileContent = event.target.value;
+        checkFilesAndEnableButton();
+    });
+
+    document.getElementById('optabCode').addEventListener('input', (event) => {
+        optabFileContent = event.target.value;
+        processOptabContents(optabFileContent);
+        checkFilesAndEnableButton();
+    });
+
+    function checkFilesAndEnableButton() {
+        const passOneButton = document.getElementById('passOneBtn');
+        if (inputFileContent && optabFileContent) {
+            passOneButton.disabled = false;
+        }
+    }
+
+    function processOptabContents(content) {
+        const lines = content.split('\n');
+        opcode_list.length = 0; 
+        for (let key in opcode_hex) delete opcode_hex[key]; 
+
+        lines.forEach(line => {
+            const [opcode, hexcode] = line.trim().split(/\s+/);
+            if (opcode && hexcode) {
+                opcode_list.push(opcode);
+                opcode_hex[opcode] = hexcode;
+            }
+        });
+    }
+
+    function passOne() {
+        const lines = inputFileContent.split('\n');
+        let output = '';
+        let intermediate = '';
+        let symtab = `Label\tlocctr\tflag\n\n`;
+
+        sym_list.length = 0; 
+        sym_addresses.length = 0; 
+        locctr = 0;
+
+        lines.forEach(line => {
+            const words = line.trim().split(/\s+/);
+            if (words.length <= 3) {
+                let [label, opcode, operand] = words.map(word => word || '');
+
+                if (opcode === 'START') {
+                    locctr = parseInt(operand, 16);
+                }
+
+                intermediate += `${locctr.toString(16).toUpperCase()}\t${label}\t${opcode}\t${operand}\n`;
+
+                if (label && opcode !== 'START') {
+                    if (!sym_list.includes(label)) {
+                        sym_list.push(label);
+                        sym_addresses.push(locctr);
+                        symtab += `${label}\t${locctr.toString(16).toUpperCase()}\t 0 \n`;
+                    }
+                }
+
+                // Update locctr based on opcode type
+                if (opcode_list.includes(opcode) || opcode === 'WORD') {
+                    locctr += 3;
+                } else if (opcode === 'RESW') {
+                    locctr += (3 * parseInt(operand, 10));
+                } else if (opcode === 'RESB') {
+                    locctr += parseInt(operand, 10);
+                } else if (opcode === 'BYTE') {
+                    let len = operand.length - 3; // Removing C' or X'
+                    locctr += operand[0] === 'C' ? len : len / 2; // C or X
+                }
+            }
+        });
+
+        document.getElementById('intermediateCode').value = intermediate;
+        document.getElementById('symtabCode').value = symtab;
+        document.getElementById('passTwoBtn').disabled = false;
+    }
+
+    function passTwo() {
+        const intermediateArr = document.getElementById('intermediateCode').value.split('\n').map(line => line.split(/\s+/));
+        const symtabArr = document.getElementById('symtabCode').value.split('\n').slice(2).map(line => line.split(/\s+/));
+        
+        let objectCodeArr = [];
+        let output = '';
+        let header = '';
+        let textRecord = '';
+        let startAddress = intermediateArr[1][0];
+        let size = 0;
+        
+        // Generate Header Record
+        const programName = intermediateArr[0][1].padEnd(6, ' ');
+        const programLength = (parseInt(intermediateArr[intermediateArr.length - 2][0], 16) - parseInt(startAddress, 16)).toString(16).padStart(6, '0').toUpperCase();
+        header = `H^${programName}^${startAddress}^${programLength}\n`;
+
+        // Process each line in the intermediate code
+        for (let i = 1; i < intermediateArr.length; i++) {
+            const opcode = intermediateArr[i][2];
+            const operand = intermediateArr[i][3];
+
+            let objectCode = '';
+
+            // Handle different mnemonics
+            if (opcode in opcode_hex) {
+                // Standard opcode
+                objectCode = opcode_hex[opcode];
+                // Check if there is an operand in the symbol table
+                const symEntry = symtabArr.find(sym => sym[0] === operand);
+                if (symEntry) {
+                    objectCode += symEntry[1].padStart(4, '0'); // Add address from symbol table
+                } else {
+                    objectCode += '0000'; // No symbol found
+                }
+            } else if (opcode === 'WORD') {
+                objectCode = parseInt(operand).toString(16).padStart(6, '0');
+            } else if (opcode === 'BYTE') {
+                const byteValue = operand.slice(2, -1); // Remove C' or X'
+                for (let char of byteValue) {
+                    objectCode += char.charCodeAt(0).toString(16);
+                }
+                objectCode = objectCode.toUpperCase();
+            } else if (opcode === 'RESW' || opcode === 'RESB') {
+                // No object code for reserved words, just continue
+                continue;
+            }
+
+            objectCodeArr.push(objectCode);
+        }
+
+        // Create Text Records
+        let textRecordOutput = '';
+        for (let j = 0; j < objectCodeArr.length; j++) {
+            const currentCode = objectCodeArr[j];
+            if (currentCode !== '') {
+                if (size + currentCode.length / 2 <= 30) { // If within limit
+                    textRecord += `^${currentCode}`;
+                    size += currentCode.length / 2;
+                } else {
+                    textRecordOutput += `T^${startAddress.padStart(6, '0')}^${size.toString(16).padStart(2, '0').toUpperCase()}${textRecord}\n`;
+                    startAddress = intermediateArr[j][0]; // New start address
+                    textRecord = `^${currentCode}`;
+                    size = currentCode.length / 2;
+                }
+            }
+        }
+
+        // If there is any leftover text record
+        if (textRecord) {
+            textRecordOutput += `T^${startAddress.padStart(6, '0')}^${size.toString(16).padStart(2, '0').toUpperCase()}${textRecord}\n`;
+        }
+
+        // Create End Record
+        const endRecord = `E^${startAddress.padStart(6, '0').toUpperCase()}`;
+
+        // Final Output
+        output = header + textRecordOutput + endRecord;
+
+        document.getElementById('objectCode').value = output;
+    }
+
+    document.getElementById('passOneBtn').addEventListener('click', passOne);
+    document.getElementById('passTwoBtn').addEventListener('click', passTwo);
+</script>
+
+</body>
+</html>
